@@ -119,7 +119,6 @@ test_expect_success "Publish test text file to IPNS" '
   test_cmp expected2 output
 '
 
-
 # ensure we start with empty Gateway.PublicGateways
 test_expect_success 'start daemon with empty config for Gateway.PublicGateways' '
   test_kill_ipfs_daemon &&
@@ -261,6 +260,7 @@ test_expect_success "request for deep path resource at {cid}.ipfs.localhost/sub/
   curl -s --resolve $DIR_HOSTNAME:127.0.0.1 "http://$DIR_HOSTNAME/subdir1/subdir2/bar" > list_response &&
   test_should_contain "subdir2-bar" list_response
 '
+
 
 # *.ipns.localhost
 
@@ -500,6 +500,43 @@ test_hostname_gateway_response_should_contain \
   "${IPNS_IDv1}.ipns.example.com" \
   "http://127.0.0.1:$GWAY_PORT" \
   "404 Not Found"
+
+## ============================================================================
+## Special handling of CIDs that do not fit in a single DNS Label (>63chars)
+## https://github.com/ipfs/go-ipfs/issues/7318
+## ============================================================================
+
+# TODO: replace with cidv1
+# ed25519 fits under 63 char limit when represented in base36
+CIDv1_ED25519_RAW="12D3KooWP3ggTJV8LGckDHc4bVyXGhEWuBskoFyE6Rn2BJBqJtpa"
+CIDv1_ED25519_DNSSAFE="k51qzi5uqu5dmcbvz6u9xahfqtsrky1g6tugpr5lqjyz0sc3j80muh0oi5tgtt"
+# sha512 will be over 63char limit, even when represented in Base36
+CIDv1_TOO_LONG=$(echo $CID_VAL | ipfs add --cid-version 1 --hash sha2-512 -Q)
+
+# local: *.localhost
+test_localhost_gateway_response_should_contain \
+  "request for a ED25519 CID at localhost/ipfs/{CIDv1} returns Location HTTP header for DNS-safe subdomain redirect in browsers" \
+  "http://localhost:$GWAY_PORT/ipns/$CIDv1_ED25519_RAW" \
+  "Location: http://${CIDv1_ED25519_DNSSAFE}.ipfs.localhost:$GWAY_PORT/"
+
+test_localhost_gateway_response_should_contain \
+  "request for a too long CID at localhost/ipfs/{CIDv1} returns error" \
+  "http://localhost:$GWAY_PORT/ipfs/$CIDv1_TOO_LONG" \
+  "TODO: expect error"
+
+# public gateway: *.example.com
+
+test_hostname_gateway_response_should_contain \
+  "request for a ED25519 CID at example.com/ipfs/{CIDv1} returns Location HTTP header for DNS-safe subdomain redirect in browsers" \
+  "example.com" \
+  "http://127.0.0.1:$GWAY_PORT/ipfs/$CIDv1_ED25519_RAW" \
+  "Location: http://${CID_ED25519_DNSSAFE}.ipfs.example.com"
+
+test_hostname_gateway_response_should_contain \
+  "request for a too long CID at example.com/ipfs/{CIDv1} returns error" \
+  "example.com" \
+  "http://127.0.0.1:$GWAY_PORT/ipfs/$CIDv1_TOO_LONG" \
+  "TODO: expect error"
 
 
 ## ============================================================================
